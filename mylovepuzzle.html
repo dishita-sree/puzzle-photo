@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personalized Love Puzzle</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent-pink: #ff4757;
+            --glass: rgba(255, 255, 255, 0.9);
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: linear-gradient(135deg, #fce4ec 0%, #ffe0e6 100%);
+            background-attachment: fixed;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            font-family: 'Dancing Script', cursive;
+            font-size: 3.5rem;
+            color: var(--accent-pink);
+            margin: 10px 0;
+        }
+
+        #upload-card {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+
+        .upload-label {
+            background: var(--accent-pink);
+            color: white;
+            padding: 15px 35px;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        input[type="file"] { display: none; }
+
+        #game-area {
+            display: none;
+            position: relative;
+        }
+
+        canvas {
+            border-radius: 8px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+            touch-action: none;
+        }
+
+        /* Success Message with Close Button */
+        #success-wrap {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            z-index: 1000;
+            text-align: center;
+            width: 300px;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #eee;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-weight: bold;
+            color: #666;
+        }
+
+        .btn-new {
+            background: var(--accent-pink);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Puzzle</h1>
+    
+    <div id="upload-card">
+        <p>Turn your favorite memory into a puzzle!</p>
+        <label for="imageInput" class="upload-label">Select Photo</label>
+        <input type="file" id="imageInput" accept="image/*">
+    </div>
+
+    <div id="game-area">
+        <canvas id="puzzleCanvas"></canvas>
+    </div>
+
+    <div id="success-wrap">
+        <button class="close-btn" onclick="closeSuccess()">✕</button>
+        <div style="font-size: 40px;">❤️</div>
+        <h2 style="color: var(--accent-pink); margin: 10px 0;">Beautifully Done!</h2>
+        <p>You've completed the memory.</p>
+        <button onclick="location.reload()" class="btn-new">Create New Puzzle</button>
+    </div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const canvas = document.getElementById('puzzleCanvas');
+        const ctx = canvas.getContext('2d');
+        const successWrap = document.getElementById('success-wrap');
+
+        const DIFFICULTY = 4; 
+        let pieces = [];
+        let mainImage, pieceWidth, pieceHeight, selectedPiece;
+        let offsetX, offsetY;
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                mainImage = new Image();
+                mainImage.onload = initPuzzle;
+                mainImage.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function initPuzzle() {
+            document.getElementById('upload-card').style.display = 'none';
+            document.getElementById('game-area').style.display = 'block';
+
+            const maxWidth = Math.min(window.innerWidth - 40, 500);
+            const scale = maxWidth / mainImage.width;
+            canvas.width = mainImage.width * scale;
+            canvas.height = mainImage.height * scale;
+            
+            pieceWidth = canvas.width / DIFFICULTY;
+            pieceHeight = canvas.height / DIFFICULTY;
+
+            createPieces();
+            scramble();
+            draw();
+        }
+
+        function createPieces() {
+            pieces = [];
+            for(let r=0; r<DIFFICULTY; r++) {
+                for(let c=0; c<DIFFICULTY; c++) {
+                    pieces.push({
+                        r, c,
+                        x: 0, y: 0,
+                        correctX: c * pieceWidth,
+                        correctY: r * pieceHeight,
+                        isSnapped: false
+                    });
+                }
+            }
+        }
+
+        function scramble() {
+            pieces.forEach(p => {
+                p.x = Math.random() * (canvas.width - pieceWidth);
+                p.y = Math.random() * (canvas.height - pieceHeight);
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw a very faint hint version of the image
+            ctx.save();
+            ctx.globalAlpha = 0.15;
+            ctx.drawImage(mainImage, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            // Draw pieces (snapped ones first, then floating, then selected)
+            pieces.filter(p => p.isSnapped).forEach(p => drawPiece(p));
+            pieces.filter(p => !p.isSnapped && p !== selectedPiece).forEach(p => drawPiece(p));
+            if(selectedPiece) drawPiece(selectedPiece, true);
+        }
+
+        function drawPiece(p, isSelected = false) {
+            ctx.save();
+            if (isSelected) {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = "rgba(0,0,0,0.4)";
+            }
+
+            // Simple rectangle path - NO DOTS
+            ctx.beginPath();
+            ctx.rect(p.x, p.y, pieceWidth, pieceHeight);
+            ctx.clip();
+
+            const sw = mainImage.width / DIFFICULTY;
+            const sh = mainImage.height / DIFFICULTY;
+            ctx.drawImage(mainImage, p.c * sw, p.r * sh, sw, sh, p.x, p.y, pieceWidth, pieceHeight);
+            
+            ctx.restore();
+
+            // Draw subtle border
+            ctx.strokeStyle = p.isSnapped ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(p.x, p.y, pieceWidth, pieceHeight);
+        }
+
+        function closeSuccess() { successWrap.style.display = 'none'; }
+
+        // Interaction Logic
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const t = e.touches ? e.touches[0] : e;
+            return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getPos(e);
+            for(let i=pieces.length-1; i>=0; i--) {
+                const p = pieces[i];
+                if(!p.isSnapped && pos.x > p.x && pos.x < p.x + pieceWidth && pos.y > p.y && pos.y < p.y + pieceHeight) {
+                    selectedPiece = p;
+                    offsetX = pos.x - p.x;
+                    offsetY = pos.y - p.y;
+                    return;
+                }
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if(!selectedPiece) return;
+            const pos = getPos(e);
+            selectedPiece.x = Math.max(0, Math.min(pos.x - offsetX, canvas.width - pieceWidth));
+            selectedPiece.y = Math.max(0, Math.min(pos.y - offsetY, canvas.height - pieceHeight));
+            draw();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if(!selectedPiece) return;
+            const d = Math.hypot(selectedPiece.x - selectedPiece.correctX, selectedPiece.y - selectedPiece.correctY);
+            if(d < 20) {
+                selectedPiece.x = selectedPiece.correctX;
+                selectedPiece.y = selectedPiece.correctY;
+                selectedPiece.isSnapped = true;
+                if(pieces.every(p => p.isSnapped)) setTimeout(() => successWrap.style.display = 'block', 5000);
+            }
+            selectedPiece = null;
+            draw();
+        });
+
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); /* trigger mousedown logic */ }, {passive:false});
+    </script>
+</body>
+</html>
